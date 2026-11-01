@@ -1,0 +1,35 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+.env.local
+*.sqlite
+*.sqlite3
+*.db
+.idea/
+.vscode/
+
+# Local desktop state, if a developer points the data directory at the
+# repository. It holds encrypted database credentials and must never be
+# committed, which is a stronger reason than the usual "it is generated".
+profiles.json
+credentials.json
+*.tmp
+
+# Agent worktrees: whole second checkouts of this repository, created by
+# tooling. Not ours to lint, test or commit.
+.claude/worktrees/
+
+# One developer's own Claude Code settings.
+.claude/settings.local.json
+
+# Files a person reads while reviewing a task, kept out of the record.
+review/
