@@ -20,33 +20,33 @@ admin; their public API workflows are planned in `PLAN.md`.
 
 ## Technology
 
-- Python and Django 6.1.2
+- Python 3.12 and Django 5.2 LTS
 - Django REST Framework
 - Django REST Framework Simple JWT
 - python-dotenv
-- SQLite for local development
+- PostgreSQL 16 through the `psycopg` driver
 
-The repository does not yet include a dependency manifest. The setup command
-below reflects packages imported by the current source.
+Direct dependencies are pinned in `requirements.txt`.
 
 ## Setup
 
-From PowerShell in the repository root:
+Start PostgreSQL 16 in Docker:
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install "Django==6.1.2" djangorestframework djangorestframework-simplejwt python-dotenv
-Copy-Item .env.example .env
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
+```text
+docker run --name bookit-db -e POSTGRES_PASSWORD=bookit -e POSTGRES_DB=bookit -p 5432:5432 -d postgres:16
 ```
 
-Use a Python version supported by Django 6.1. If PowerShell blocks virtual
-environment activation, set an appropriate execution policy for your user or
-invoke `.venv\Scripts\python.exe` directly.
+Then, from PowerShell in the repository root:
+
+```powershell
+conda create -n movement python=3.12
+conda activate movement
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python manage.py migrate
+python manage.py seed_data
+python manage.py runserver
+```
 
 The development server starts at `http://127.0.0.1:8000/`; Django admin is at
 `http://127.0.0.1:8000/admin/`.
@@ -58,8 +58,37 @@ Copy `.env.example` to `.env` and set:
 - `SECRET_KEY`: required Django secret; use a unique value outside development.
 - `DEBUG`: accepts `1`, `true`, `yes`, or `on`; keep disabled in production.
 - `ALLOWED_HOSTS`: comma-separated hostnames.
+- `DB_NAME`, `DB_USER`, `DB_PASSWORD`: required PostgreSQL database, user, and
+  password. The `.env.example` values match the Docker command above.
+- `DB_HOST`, `DB_PORT`: optional; default to `localhost` and `5432`.
+- `SEED_PASSWORD`: optional shared password for seeded users.
 
-`.env` and local SQLite databases are ignored by Git.
+`.env` is ignored by Git.
+
+## Seed Data
+
+`python manage.py seed_data` creates a deterministic demo data set: 5 business
+owners with 4 businesses each (20 businesses, 10 Barbers and 10 Tutors), 10
+clients, 50 services, and 200 appointments. Appointments use 30-minute slots
+from 09:00 to 18:00 Asia/Jerusalem time, within 30 days before or after the run
+date, with no double-booked service or client.
+
+Each run deletes every user whose email ends in `@bookit.test` (matched
+case-insensitively), together with their businesses, services, and
+appointments, and recreates the data set in a single transaction. Because
+deleting a service also deletes its appointments, bookings that other users
+made on seeded services are removed too. Users with any other email domain,
+and everything else they own, are untouched. Rerunning always produces the
+same counts.
+
+Seeded logins all share the password `BookIt-Demo-2026!` unless `SEED_PASSWORD`
+is set:
+
+| Role | Emails |
+| --- | --- |
+| Business owner | `owner1@bookit.test` to `owner5@bookit.test` |
+| Client | `client1@bookit.test` to `client10@bookit.test` |
+| Admin (superuser, `BusinessOwner` role, no businesses) | `admin@bookit.test` |
 
 ## API
 
@@ -144,6 +173,7 @@ BookIt/
 |-- accounts/        # Users, registration, login, and JWT services
 |-- business/        # Businesses, services, appointments, and discovery
 |-- .env.example     # Local environment template
+|-- requirements.txt # Pinned direct dependencies
 |-- manage.py        # Django command entry point
 |-- AGENTS.md        # Instructions for coding agents
 |-- CONVENTIONS.md   # Engineering and API standards
@@ -152,7 +182,9 @@ BookIt/
 
 ## Verification
 
-With the virtual environment active:
+With the conda environment active and PostgreSQL running (tests create and
+drop a temporary `test_<DB_NAME>` database, so `DB_USER` needs `CREATEDB`
+rights):
 
 ```powershell
 python manage.py check
