@@ -106,6 +106,10 @@ DATABASES = {
     }
 }
 
+# Booking horizon: how far ahead an appointment may start. It also keeps start_time + duration far from
+# datetime.max, where the arithmetic would overflow.
+BOOKING_MAX_ADVANCE_DAYS = int(os.environ.get("BOOKING_MAX_ADVANCE_DAYS", "365"))
+
 AUTH_USER_MODEL = 'accounts.CustomUser'
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

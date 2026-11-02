@@ -32,15 +32,17 @@ Already implemented:
 - Python 3.12, Django 5.2 LTS, and PostgreSQL 16 through `psycopg`, with
   pinned direct dependencies in `requirements.txt`.
 - Idempotent, deterministic `seed_data` command.
+- Appointment booking (`POST`) and role-scoped listing (`GET`) with a database
+  exclusion constraint against overlapping bookings.
 
 Must be corrected or completed:
 
-- Appointment POST/list endpoints and role-based ownership queries are missing.
 - The owner-only business summary endpoint and ORM aggregation are missing.
 - The two required custom middleware classes are missing.
 - Token values are currently printed and must not appear in output or logs.
 - The README lacks the required connection/transaction explanation.
-- No Postman collection exists.
+- The Postman collection (`postman/BookIt.postman_collection.json`) covers
+  auth, businesses, and appointments; the summary endpoint is still to add.
 
 ## Milestone 1: Authentication — Implemented
 
@@ -66,6 +68,9 @@ Verification outcome:
 - The login 401 response carries `WWW-Authenticate: Bearer realm="api"`.
 - Tests cover malformed, wrong-signature, and expired access tokens (401).
 - Routes keep trailing slashes; the README and Postman collection use them.
+  Known, accepted deviation from the assignment text, which writes the paths
+  without a slash: a slashless `GET` is redirected (301), a slashless `POST`
+  fails.
 - `/admin/` is a documented staff-only session-auth exception to the JWT rule.
 - Deferred: the 403 path is tested with real role-gated endpoints in
   Milestones 4 and 5; token print removal stays in Milestone 7; the refresh
@@ -150,12 +155,15 @@ Implementation decisions:
   every day, stored in UTC. No service and no client is double-booked. Past
   appointments are Confirmed or Cancelled; future ones are Pending, Confirmed,
   or Cancelled.
-- The command has no environment guard and no automated tests; it was
-  verified by running it twice.
+- The command refuses to run unless `DEBUG=True` (it deletes data and creates
+  a superuser with a documented password). Only the guard is covered by an
+  automated test; the data set was verified by running the command twice.
 - A database constraint against double booking is deferred to Milestone 4.
 - The connection/transaction README explanation stays in Milestone 7.
 
-## Milestone 4: Appointment Service and Endpoints
+## Milestone 4: Appointment Service and Endpoints — Implemented
+
+Implemented in `ms-4` (pending commit approval).
 
 1. Add `AppointmentService` with ORM/repository dependencies passed explicitly.
 2. Add `POST /api/appointments/`; only a `Client` may book a service.
@@ -177,6 +185,69 @@ Acceptance criteria:
 - Role, authentication, ownership, filters, response schema, and transaction
   behavior are tested.
 - Owners cannot see appointments for another owner's businesses.
+
+Implementation decisions:
+
+- Booking conflict rule: the active (non-`Cancelled`) appointments of one
+  service may not overlap in time. It is enforced by the PostgreSQL exclusion
+  constraint `appointment_service_no_overlap` over the half-open range
+  `[start_time, end_time)`, so back-to-back bookings are allowed and a
+  cancelled appointment frees its time. A conflict returns `409` with a
+  `start_time` field error; the service maps the constraint's
+  `IntegrityError` to `SlotUnavailableError`. There is no slot grid: any
+  future start time is valid as long as it does not overlap.
+- The constraint needs no extension. Equality on the service is expressed as
+  overlap of one-point ranges, `int8range(service_id, service_id, '[]') &&`
+  (`BigIntPointRange` in `business/db_functions.py`), which GiST supports
+  natively; the alternative is `BtreeGistExtension` with `service_id WITH =`.
+  Other options (slot grid with a unique constraint, trigger with an advisory
+  lock, lock-and-check in the service) were evaluated and rejected: they
+  either need a product rule, custom PL/pgSQL, or do not bind every writer.
+- Overlap is checked against stored `end_time` snapshots, so editing a
+  service's duration later does not make old and new bookings conflict
+  unpredictably; it also means a duration edit never re-checks old bookings.
+- `Appointment.end_time` is a stored `NOT NULL` snapshot of
+  `start_time + service.duration_minutes`, with
+  `CHECK (end_time > start_time)`. `AppointmentService` sets it; `save()` fills
+  it only when empty (admin, shell). `bulk_create` and `QuerySet.update()`
+  skip `save()`, so `seed_data` sets it explicitly. Later edits to a service's
+  duration or an appointment's `start_time` do not recompute it.
+- Migration `0003` adds the column nullable, backfills it with SQL, then
+  enforces `NOT NULL` and adds both constraints. It fails if existing data
+  already contains overlapping active appointments for a service.
+- `POST` body is `{"service": <id>, "start_time": <ISO 8601 with offset>}`.
+  Only users whose current database role is `Client` may book (`403`
+  otherwise, including owners booking their own business); the JWT role claim
+  is not trusted. New appointments are always `Pending`. An unknown service,
+  a naive/invalid datetime, a start time that is not in the future, or a start
+  time more than `BOOKING_MAX_ADVANCE_DAYS` (default 365) ahead returns `400`
+  on `service` or `start_time`. The horizon is checked before any date
+  arithmetic, so values near year 9999 no longer overflow into a `500`.
+- `GET` accepts `from`/`to` (timezone-aware, inclusive, on `start_time`;
+  `from > to` returns `400` on `to`) and a repeatable `status` name filter.
+  Choice values in query strings (`status`, and `category` on the business
+  list) are lowercase only (`pending`, `barbers`); other casing returns `400`.
+  Responses use the same spelling (`"status": "pending"`,
+  `"category": "barbers"`), produced by `public_name()` in
+  `business/serializers.py`. The `role` field of the accounts API keeps its
+  `Client`/`BusinessOwner` spelling.
+  Results are ordered by `start_time, id` and paginated with
+  `StandardPageNumberPagination`. Cancelled appointments are included unless
+  filtered out.
+- Responses nest `service`, `business`, and `client` display fields and render
+  the status by lowercase name. Datetimes are rendered in UTC.
+- `AppointmentStatus` moved from a nested class to a module-level enum so the
+  model's `Meta` constraints can reference it.
+- The business list and appointment list queries select only the columns their
+  response serializers render (`.only()`), so owner and client password hashes
+  and emails are not fetched; tests assert that the query count stays flat. The
+  `.only()` column lists must be kept in sync with the response serializers.
+- Django admin: the appointment form uses autocomplete lookups for `service`
+  and `client`, and `ServiceAdmin` joins `business`, so the form no longer runs
+  one query per service.
+- Not included: retrieve-by-id, cancel, and confirm endpoints.
+- A service with `duration_minutes = 0` would violate the `end_time` check and
+  surface as a server error; a `Service` duration constraint was not added.
 
 ## Milestone 5: Owner-Only Business Summary
 
@@ -237,6 +308,22 @@ python manage.py test
 5. Review endpoint status codes, query efficiency, secrets, and logs.
 6. Prepare logical changes for a meaningful commit history, but do not create,
    amend, or push any commit without explicit user permission.
+
+## Backlog (post-assignment)
+
+Not scheduled; revisit when the trigger appears.
+
+- **Database connection scaling.** `CONN_MAX_AGE = 0` opens a PostgreSQL
+  connection per request. This is deliberate for the assignment because it
+  keeps the per-request connection and transaction scope simple. Revisit when
+  sustained load or `max_connections` pressure appears. Options:
+  - Django 5.1+ native pooling (`OPTIONS={"pool": True}` with
+    `psycopg[pool]`); it is mutually exclusive with `CONN_MAX_AGE > 0`.
+  - PgBouncer in transaction mode.
+  - `CONN_MAX_AGE` with `CONN_HEALTH_CHECKS`.
+
+  Keep the README connection/transaction explanation in sync with the chosen
+  option.
 
 ## Optional Bonus — Only After Required Work
 

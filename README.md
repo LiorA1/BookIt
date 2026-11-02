@@ -11,12 +11,13 @@ JWT authentication, core booking-domain models, and paginated business search.
 - JWT access and refresh tokens.
 - Authenticated business listing.
 - Category filtering and case-insensitive name search.
+- Appointment booking for clients and role-scoped, filterable appointment lists.
 - Configurable page-number pagination.
 - Django admin support for users, businesses, services, and appointments.
 - Service-level and API-level tests.
 
-Services and appointments are currently available as models and through Django
-admin; their public API workflows are planned in `PLAN.md`.
+Services are currently available as models and through Django admin;
+appointments are also available through the booking and listing API.
 
 ## Technology
 
@@ -62,6 +63,8 @@ Copy `.env.example` to `.env` and set:
   password. The `.env.example` values match the Docker command above.
 - `DB_HOST`, `DB_PORT`: optional; default to `localhost` and `5432`.
 - `SEED_PASSWORD`: optional shared password for seeded users.
+- `BOOKING_MAX_ADVANCE_DAYS`: optional; how far ahead an appointment may be
+  booked (default 365).
 
 `.env` is ignored by Git.
 
@@ -72,6 +75,10 @@ owners with 4 businesses each (20 businesses, 10 Barbers and 10 Tutors), 10
 clients, 50 services, and 200 appointments. Appointments use 30-minute slots
 from 09:00 to 18:00 Asia/Jerusalem time, within 30 days before or after the run
 date, with no double-booked service or client.
+
+The command only runs with `DEBUG=True` (the `.env.example` default) and
+exits with an error otherwise, because it deletes data and creates a superuser
+with a documented password.
 
 Each run deletes every user whose email ends in `@bookit.test` (matched
 case-insensitively), together with their businesses, services, and
@@ -93,8 +100,17 @@ is set:
 ## API
 
 All request and response bodies use JSON. API routes use trailing slashes
-(for example `/api/auth/register/`); requests without the trailing slash are
-not redirected and fail.
+(for example `/api/auth/register/`).
+
+Known limitation (accepted): the assignment text writes the paths without a
+trailing slash (for example `/api/appointments`). Django's `APPEND_SLASH`
+answers a slashless `GET` with a `301` redirect to the slashed route, but a
+slashless `POST` is not usable: it raises an error when `DEBUG` is on and is
+redirected without its body otherwise. Always call the routes with the
+trailing slash.
+
+A ready-to-import Postman collection and environment live in `postman/`; see
+[Postman](#postman).
 
 Every `/api/` route except register and login requires a JWT access token.
 Django admin at `/admin/` is a deliberate exception: it is a staff-only
@@ -147,23 +163,86 @@ Supported query parameters:
 
 - `page`: page number.
 - `page_size`: requested size; defaults to 20 and is capped at 100.
-- `category`: `Barbers` or `Tutors`.
+- `category`: `barbers` or `tutors` (lowercase only; other casing returns
+  `400`). Responses render the category the same way (`"category": "barbers"`).
 - `search`: case-insensitive business-name search; multiple terms must all
   match.
 
 Example:
 
 ```text
-GET /api/businesses/?category=Barbers&search=fade&page_size=10
+GET /api/businesses/?category=barbers&search=fade&page_size=10
 ```
+
+### Book an Appointment
+
+`POST /api/appointments/` requires authentication and a user whose current
+role is `Client`; business owners receive `403 Forbidden`.
+
+```json
+{
+  "service": 1,
+  "start_time": "2026-11-10T10:00:00Z"
+}
+```
+
+`start_time` must include a UTC offset (`Z` or `+02:00`), be in the future, and
+be at most `BOOKING_MAX_ADVANCE_DAYS` (default 365) days ahead.
+The appointment starts as `pending`, and `end_time` is `start_time` plus the
+service duration. Responses use `201 Created`. Errors are field-oriented:
+`400` for an unknown service or an invalid, naive, past, or too-distant
+`start_time`, and
+`409 Conflict` on `start_time` when the booking would overlap an active
+appointment of the same service. Back-to-back bookings are allowed, and
+cancelled appointments free their time.
+
+### List Appointments
+
+`GET /api/appointments/` requires authentication and returns the same
+paginated envelope as the business list. Clients see their own appointments;
+business owners see appointments for services in businesses they own.
+Results are ordered by `start_time`.
+
+Supported query parameters:
+
+- `page`, `page_size`: as for businesses.
+- `from`, `to`: inclusive bounds on `start_time`, timezone-aware ISO 8601.
+- `status`: `pending`, `confirmed`, or `cancelled` (lowercase only); repeat the
+  parameter to match several (`?status=pending&status=confirmed`).
+
+Each item contains `id`, `status`, `start_time`, `end_time`, and nested
+`service`, `business`, and `client` objects. `status` and the business
+`category` are rendered in lowercase (`"status": "pending"`), matching the
+query values.
+
+## Postman
+
+Import `postman/BookIt.postman_collection.json` into Postman. It covers
+register, login, the business list (pagination, `category`, `search`) and the
+appointment list and booking endpoints, including the 400, 401, 403 and 409
+cases, and uses the seeded logins (`client1@bookit.test`, `owner1@bookit.test`,
+password `BookIt-Demo-2026!`) through collection variables. Start the server
+first and run the folders in order: the login requests save the tokens, and
+"List my appointments (client)" saves a real `serviceId` for the booking
+requests, because database ids change on every `seed_data` run. Change
+`baseUrl` if the server is not on `http://127.0.0.1:8000`.
+
+The collection can also run headless: `npx newman run
+postman/BookIt.postman_collection.json`. Registering and booking requests
+write real rows to the development database.
+
+The business summary endpoint is not implemented yet, so it is not in the
+collection.
 
 ## Domain Model
 
 - A user has one role and authenticates by normalized email.
 - A business belongs to an owner and has a category.
 - A service belongs to a business and defines duration and price.
-- An appointment links a client to a service at a start time and has
-  `Pending`, `Confirmed`, or `Cancelled` status.
+- An appointment links a client to a service at a start time, stores its end
+  time, and has `Pending`, `Confirmed`, or `Cancelled` status. The
+  non-cancelled appointments of a service cannot overlap in time; PostgreSQL
+  enforces this with an exclusion constraint.
 
 ## Project Layout
 

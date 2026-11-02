@@ -73,7 +73,10 @@ navigate. Avoid circular imports between apps.
 
 - Validate all external input with DRF serializers, including query strings.
 - Convert public choice names to internal enum values during validation.
-- Render enum names or labels, never unexplained integer values.
+- Render enum names or labels, never unexplained integer values. Choice
+  values such as `status` and `category` use the lowercase member name in
+  query strings and responses alike (`public_name()` in
+  `business/serializers.py`).
 - Mark response-only fields read-only and password fields write-only.
 - Keep response shapes stable and explicit through response serializers.
 - Return validation errors under the relevant field when possible.
@@ -86,7 +89,9 @@ navigate. Avoid circular imports between apps.
   status only.
 - Use DRF status constants rather than numeric literals.
 - Mount app URLs below `/api/` in `BookIt/urls.py`.
-- Keep trailing slashes consistent with the existing routes.
+- Keep trailing slashes consistent with the existing routes. This deviates
+  from the assignment's slashless paths and is accepted; a slashless `POST`
+  is not supported.
 - Apply role and ownership checks before reads or writes to protected objects.
 
 ## Queries, Filtering, and Pagination

@@ -6,12 +6,13 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import Role
-from business.models import Appointment, Business, Category, Service
+from business.models import Appointment, AppointmentStatus, Business, Category, Service
 
 SEED_EMAIL_DOMAIN = "bookit.test"
 DEFAULT_SEED_PASSWORD = "BookIt-Demo-2026!"
@@ -62,6 +63,12 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError(
+                f"seed_data deletes all @{SEED_EMAIL_DOMAIN} data and creates a superuser with a shared, "
+                "documented password; it only runs with DEBUG=True."
+            )
+
         rng = random.Random(RANDOM_SEED)
         password_hash = make_password(os.environ.get("SEED_PASSWORD") or DEFAULT_SEED_PASSWORD)
 
@@ -136,13 +143,17 @@ class Command(BaseCommand):
                 continue
             booked_service_slots.add(service_slot)
             booked_client_slots.add(client_slot)
-            appointments.append(Appointment(service=service, client=client, start_time=start_time, status=status))
+            # bulk_create skips Appointment.save(), so end_time is set explicitly.
+            end_time = start_time + timedelta(minutes=service.duration_minutes)
+            appointments.append(
+                Appointment(service=service, client=client, start_time=start_time, end_time=end_time, status=status)
+            )
 
         return Appointment.objects.bulk_create(appointments)
 
     @staticmethod
     def _pick_status(rng, *, is_past):
-        Status = Appointment.AppointmentStatus
+        Status = AppointmentStatus
         if is_past:
             return rng.choices([Status.Confirmed, Status.Cancelled], weights=[85, 15])[0]
         return rng.choices([Status.Pending, Status.Confirmed, Status.Cancelled], weights=[45, 40, 15])[0]
