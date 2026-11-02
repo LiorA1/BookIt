@@ -2,15 +2,8 @@ from django.contrib.auth import authenticate, get_user_model
 from django.db import IntegrityError, transaction
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .exceptions import EmailAlreadyRegisteredError, InvalidCredentialsError
 from .models import Role
-
-
-class EmailAlreadyRegisteredError(Exception):
-    pass
-
-
-class InvalidCredentialsError(Exception):
-    pass
 
 
 class UserService:

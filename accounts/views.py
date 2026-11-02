@@ -3,13 +3,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .exceptions import EmailAlreadyRegisteredError, InvalidCredentialsError
 from .serializers import (
     LoginRequestSerializer,
     RegisterRequestSerializer,
     TokenResponseSerializer,
     UserResponseSerializer,
 )
-from .services import AuthService, EmailAlreadyRegisteredError, InvalidCredentialsError, UserService
+from .services import AuthService, UserService
 
 
 class RegisterView(APIView):

@@ -5,8 +5,9 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
+from .exceptions import EmailAlreadyRegisteredError, InvalidCredentialsError
 from .models import Role
-from .services import AuthService, EmailAlreadyRegisteredError, InvalidCredentialsError, UserService
+from .services import AuthService, UserService
 
 User = get_user_model()
 
