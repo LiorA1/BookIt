@@ -2,12 +2,13 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q
 from django.utils import timezone
 
 from accounts.models import Role
 
-from .exceptions import SlotUnavailableError, StartTimeInPastError, StartTimeTooFarError
-from .models import Appointment
+from .exceptions import BusinessNotOwnedError, SlotUnavailableError, StartTimeInPastError, StartTimeTooFarError
+from .models import Appointment, AppointmentStatus, Service
 
 OVERLAP_CONSTRAINT = "appointment_service_no_overlap"
 
@@ -74,3 +75,32 @@ class AppointmentService:
             queryset = queryset.filter(status__in=statuses)
         # A deterministic ordering keeps pages stable.
         return queryset.order_by("start_time", "id")
+
+
+class BusinessSummaryService:
+    def __init__(self, service_model=None, now=timezone.now):
+        self.service_model = service_model or Service
+        self.now = now
+
+    def summarize(self, *, request_owner, business):
+        """Per-service count of future, non-cancelled appointments and their expected revenue, by service id.
+
+        Raises BusinessNotOwnedError unless `request_owner` currently owns `business` (no superuser bypass). Counts and
+        revenue are computed by the database in one grouped query; services without such appointments report 0.
+        """
+        if business.owner_id != request_owner.pk:
+            raise BusinessNotOwnedError()
+
+        upcoming = Q(appointments__start_time__gt=self.now()) & ~Q(appointments__status=AppointmentStatus.Cancelled)
+        return (
+            self.service_model.objects.filter(business=business)
+            .only("id", "name", "price")
+            .annotate(appointment_count=Count("appointments", filter=upcoming))
+            .annotate(
+                expected_revenue=ExpressionWrapper(
+                    F("appointment_count") * F("price"),
+                    output_field=DecimalField(max_digits=20, decimal_places=2),
+                )
+            )
+            .order_by("id")
+        )

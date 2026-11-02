@@ -12,7 +12,8 @@
     { "key": "clientToken", "value": "" },
     { "key": "ownerToken", "value": "" },
     { "key": "serviceId", "value": "" },
-    { "key": "businessId", "value": "" }
+    { "key": "businessId", "value": "" },
+    { "key": "otherBusinessId", "value": "" }
   ],
   "item": [
     {
@@ -187,7 +188,10 @@
                   "  pm.expect(body.results).to.have.lengthOf(5);",
                   "});",
                   "pm.test('item schema', () => pm.expect(body.results[0]).to.have.keys('id', 'name', 'category', 'owner'));",
-                  "pm.collectionVariables.set('businessId', body.results[0].id);"
+                  "// The seed lists each owner's businesses together, so the first page of 5 spans two owners.",
+                  "pm.collectionVariables.set('businessId', body.results[0].id);",
+                  "const other = body.results.find(b => b.owner.id !== body.results[0].owner.id);",
+                  "pm.collectionVariables.set('otherBusinessId', other.id);"
                 ]
               }
             }
@@ -341,6 +345,135 @@
             "method": "GET",
             "header": [],
             "url": { "raw": "{{baseUrl}}/api/businesses/", "host": ["{{baseUrl}}"], "path": ["api", "businesses", ""] }
+          }
+        },
+        {
+          "name": "Business summary (owner)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('paginated envelope with one item per service', () => {",
+                  "  pm.expect(body).to.have.keys('count', 'next', 'previous', 'results');",
+                  "  pm.expect(body.count).to.be.above(0);",
+                  "  body.results.forEach(item => pm.expect(item).to.have.keys('service_id', 'name', 'appointment_count', 'expected_revenue'));",
+                  "});",
+                  "pm.test('revenue is a decimal string, zero when there are no future appointments', () => {",
+                  "  body.results.forEach(item => {",
+                  "    pm.expect(item.expected_revenue).to.match(/^\\d+\\.\\d{2}$/);",
+                  "    if (item.appointment_count === 0) pm.expect(item.expected_revenue).to.eql('0.00');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/businesses/{{businessId}}/summary/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "businesses", "{{businessId}}", "summary", ""]
+            },
+            "description": "Owner-only. One item per service: the number of future, non-cancelled appointments and the expected revenue (count x price, as a decimal string). Run `List businesses (paginated)` first; `businessId` is the first seeded business, owned by owner1."
+          }
+        },
+        {
+          "name": "Business summary (another owner's business -> 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('no summary data is returned', () => pm.expect(pm.response.json()).to.not.have.property('results'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/businesses/{{otherBusinessId}}/summary/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "businesses", "{{otherBusinessId}}", "summary", ""]
+            },
+            "description": "owner1 asks for a business owned by a different owner."
+          }
+        },
+        {
+          "name": "Business summary (client -> 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('403 Forbidden', () => pm.response.to.have.status(403));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{clientToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/businesses/{{businessId}}/summary/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "businesses", "{{businessId}}", "summary", ""]
+            }
+          }
+        },
+        {
+          "name": "Business summary (unknown business -> 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('404 Not Found', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/businesses/999999999/summary/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "businesses", "999999999", "summary", ""]
+            }
+          }
+        },
+        {
+          "name": "Business summary - no token -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/businesses/{{businessId}}/summary/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "businesses", "{{businessId}}", "summary", ""]
+            }
           }
         }
       ]

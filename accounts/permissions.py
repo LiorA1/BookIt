@@ -12,3 +12,14 @@ class IsClient(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and user.role == Role.Client)
+
+
+class IsBusinessOwner(BasePermission):
+    """Allows only authenticated users whose current database role is BusinessOwner.
+
+    The role gate only; ownership of a specific business is checked by the domain service.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.role == Role.BusinessOwner)

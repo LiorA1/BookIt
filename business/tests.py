@@ -19,9 +19,9 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts.models import Role
 
-from .exceptions import SlotUnavailableError, StartTimeInPastError, StartTimeTooFarError
+from .exceptions import BusinessNotOwnedError, SlotUnavailableError, StartTimeInPastError, StartTimeTooFarError
 from .models import Appointment, AppointmentStatus, Business, Category, Service
-from .services import AppointmentService
+from .services import AppointmentService, BusinessSummaryService
 
 User = get_user_model()
 
@@ -787,6 +787,226 @@ class AppointmentListApiTests(AppointmentFixtureMixin, APITestCase):
         self.assertIn('"full_name"', appointment_query)
         self.assertNotIn("password", appointment_query)
         self.assertNotIn('"email"', appointment_query)
+
+
+class BusinessSummaryFixtureMixin(AppointmentFixtureMixin):
+    def create_appointment(self, service, client, *, days=1, minutes=0, status=AppointmentStatus.Pending):
+        return Appointment.objects.create(
+            service=service, client=client, start_time=self.future(days, minutes=minutes), status=status
+        )
+
+    def add_service(self, business, *, name, price="50.00"):
+        return Service.objects.create(business=business, name=name, duration_minutes=30, price=Decimal(price))
+
+
+class BusinessSummaryServiceTests(BusinessSummaryFixtureMixin, TestCase):
+    def setUp(self):
+        self.owner = self.create_user("owner@example.com", Role.BusinessOwner)
+        self.client_user = self.create_user("client@example.com", Role.Client)
+        self.service = self.create_service(self.owner, price="80.00")
+        self.business = self.service.business
+        self.summaries = BusinessSummaryService()
+
+    def summarize(self, summaries=None, owner=None):
+        return list(
+            (summaries or self.summaries).summarize(request_owner=owner or self.owner, business=self.business)
+        )
+
+    def test_counts_future_active_appointments_and_multiplies_by_price(self):
+        self.create_appointment(self.service, self.client_user, days=1)
+        self.create_appointment(self.service, self.client_user, days=2, status=AppointmentStatus.Confirmed)
+
+        (item,) = self.summarize()
+
+        self.assertEqual(item.pk, self.service.pk)
+        self.assertEqual(item.appointment_count, 2)
+        self.assertEqual(item.expected_revenue, Decimal("160.00"))
+
+    def test_cancelled_appointments_are_excluded(self):
+        self.create_appointment(self.service, self.client_user, days=1)
+        self.create_appointment(self.service, self.client_user, days=2, status=AppointmentStatus.Cancelled)
+
+        (item,) = self.summarize()
+
+        self.assertEqual(item.appointment_count, 1)
+        self.assertEqual(item.expected_revenue, Decimal("80.00"))
+
+    def test_past_appointments_are_excluded(self):
+        self.create_appointment(self.service, self.client_user, days=-1)
+        self.create_appointment(self.service, self.client_user, days=1)
+
+        (item,) = self.summarize()
+
+        self.assertEqual(item.appointment_count, 1)
+
+    def test_appointment_starting_exactly_now_is_not_future(self):
+        fixed_now = self.future()
+        Appointment.objects.create(service=self.service, client=self.client_user, start_time=fixed_now)
+        Appointment.objects.create(
+            service=self.service, client=self.client_user, start_time=fixed_now + timedelta(minutes=30)
+        )
+
+        (item,) = self.summarize(BusinessSummaryService(now=lambda: fixed_now))
+
+        self.assertEqual(item.appointment_count, 1)
+
+    def test_service_without_appointments_reports_zero(self):
+        (item,) = self.summarize()
+
+        self.assertEqual(item.appointment_count, 0)
+        self.assertEqual(item.expected_revenue, Decimal("0.00"))
+
+    def test_services_are_ordered_by_id_and_scoped_to_the_business(self):
+        second = self.add_service(self.business, name="Beard trim", price="40.00")
+        self.create_service(self.owner, name="Elsewhere", business_name="Other Shop")
+
+        self.assertEqual([item.pk for item in self.summarize()], [self.service.pk, second.pk])
+
+    def test_appointments_of_other_services_are_not_counted(self):
+        second = self.add_service(self.business, name="Beard trim", price="40.00")
+        self.create_appointment(second, self.client_user, days=1)
+        self.create_appointment(second, self.client_user, days=2)
+
+        first_item, second_item = self.summarize()
+
+        self.assertEqual((first_item.appointment_count, first_item.expected_revenue), (0, Decimal("0.00")))
+        self.assertEqual((second_item.appointment_count, second_item.expected_revenue), (2, Decimal("80.00")))
+
+    def test_non_owner_raises_business_not_owned(self):
+        rival = self.create_user("rival@example.com", Role.BusinessOwner)
+
+        with self.assertRaises(BusinessNotOwnedError):
+            self.summarize(owner=rival)
+
+    def test_superuser_has_no_ownership_bypass(self):
+        admin = User.objects.create_superuser(
+            email="admin@example.com", password="S3cure-pass!", full_name="Admin", role=Role.BusinessOwner
+        )
+
+        with self.assertRaises(BusinessNotOwnedError):
+            self.summarize(owner=admin)
+
+
+class BusinessSummaryApiTests(BusinessSummaryFixtureMixin, APITestCase):
+    def setUp(self):
+        self.owner = self.create_user("owner@example.com", Role.BusinessOwner)
+        self.rival_owner = self.create_user("rival@example.com", Role.BusinessOwner)
+        self.client_user = self.create_user("client@example.com", Role.Client)
+        self.service = self.create_service(self.owner, price="80.00")
+        self.business = self.service.business
+        self.url = self.url_for(self.business.pk)
+        self.client.force_authenticate(self.owner)
+
+    @staticmethod
+    def url_for(business_id):
+        return reverse("business-summary", args=[business_id])
+
+    def test_requires_authentication(self):
+        self.client.force_authenticate(None)
+
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_client_gets_403(self):
+        self.client.force_authenticate(self.client_user)
+
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_client_gets_403_even_for_an_unknown_business(self):
+        self.client.force_authenticate(self.client_user)
+
+        self.assertEqual(self.client.get(self.url_for(999999)).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_role_is_checked_against_the_database_not_the_token_claim(self):
+        token = AccessToken.for_user(self.owner)
+        token["role"] = "BusinessOwner"
+        User.objects.filter(pk=self.owner.pk).update(role=Role.Client)
+        self.client.force_authenticate(None)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_another_owner_gets_403(self):
+        self.client.force_authenticate(self.rival_owner)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn("results", response.data)
+
+    def test_superuser_who_does_not_own_the_business_gets_403(self):
+        admin = User.objects.create_superuser(
+            email="admin@example.com", password="S3cure-pass!", full_name="Admin", role=Role.BusinessOwner
+        )
+        self.client.force_authenticate(admin)
+
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unknown_business_returns_404_for_an_owner(self):
+        self.assertEqual(self.client.get(self.url_for(999999)).status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_owner_gets_paginated_envelope_with_one_item_per_service(self):
+        busy = self.add_service(self.business, name="Beard trim", price="40.00")
+        self.create_appointment(busy, self.client_user, days=1)
+        self.create_appointment(busy, self.client_user, days=2, status=AppointmentStatus.Confirmed)
+        self.create_appointment(busy, self.client_user, days=3, status=AppointmentStatus.Cancelled)
+        self.create_appointment(busy, self.client_user, days=-1)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(set(response.data), {"count", "next", "previous", "results"})
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(
+            response.data["results"],
+            [
+                {"service_id": self.service.pk, "name": "Haircut", "appointment_count": 0, "expected_revenue": "0.00"},
+                {"service_id": busy.pk, "name": "Beard trim", "appointment_count": 2, "expected_revenue": "80.00"},
+            ],
+        )
+
+    def test_does_not_include_other_businesses_or_owners_data(self):
+        rival_service = self.create_service(self.rival_owner, business_name="Rival Cuts")
+        self.create_appointment(rival_service, self.client_user, days=1)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual([item["service_id"] for item in response.data["results"]], [self.service.pk])
+        self.assertEqual(response.data["results"][0]["appointment_count"], 0)
+
+    def test_pagination_and_page_size(self):
+        for index in range(24):
+            self.add_service(self.business, name=f"Extra {index}")
+
+        first_page = self.client.get(self.url)
+        second_page = self.client.get(self.url, {"page": 2, "page_size": 10})
+
+        self.assertEqual(first_page.data["count"], 25)
+        self.assertEqual(len(first_page.data["results"]), 20)
+        self.assertEqual(len(second_page.data["results"]), 10)
+        self.assertIn("page_size=10", second_page.data["next"])
+
+    def test_query_count_does_not_grow_with_services_or_appointments(self):
+        self.create_appointment(self.service, self.client_user, days=1)
+        with CaptureQueriesContext(connection) as one_service:
+            self.client.get(self.url)
+
+        for index in range(9):
+            extra = self.add_service(self.business, name=f"Extra {index}")
+            for slot in range(3):
+                self.create_appointment(extra, self.client_user, days=1, minutes=30 * slot)
+        with CaptureQueriesContext(connection) as ten_services:
+            response = self.client.get(self.url)
+
+        self.assertEqual(len(response.data["results"]), 10)
+        self.assertEqual(len(ten_services), len(one_service))
+
+    def test_query_does_not_fetch_credentials(self):
+        self.create_appointment(self.service, self.client_user, days=1)
+
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(self.url)
+
+        self.assertFalse(any("password" in q["sql"] for q in queries))
 
 
 class AppointmentAdminTests(AppointmentFixtureMixin, TestCase):

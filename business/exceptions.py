@@ -8,3 +8,7 @@ class StartTimeInPastError(Exception):
 
 class StartTimeTooFarError(Exception):
     """The requested start time is beyond the booking horizon."""
+
+
+class BusinessNotOwnedError(Exception):
+    """The caller does not own the requested business."""

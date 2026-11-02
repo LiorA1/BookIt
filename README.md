@@ -12,6 +12,7 @@ JWT authentication, core booking-domain models, and paginated business search.
 - Authenticated business listing.
 - Category filtering and case-insensitive name search.
 - Appointment booking for clients and role-scoped, filterable appointment lists.
+- Owner-only per-service business summary (future appointment count and expected revenue).
 - Configurable page-number pagination.
 - Django admin support for users, businesses, services, and appointments.
 - Service-level and API-level tests.
@@ -215,24 +216,48 @@ Each item contains `id`, `status`, `start_time`, `end_time`, and nested
 `category` are rendered in lowercase (`"status": "pending"`), matching the
 query values.
 
+### Business Summary
+
+`GET /api/businesses/<id>/summary/` is owner-only and returns the same
+paginated envelope, with one item per service of the business, ordered by
+service id (`page`, `page_size` as for businesses):
+
+```json
+{
+  "service_id": 7,
+  "name": "Fade cut",
+  "appointment_count": 3,
+  "expected_revenue": "150.00"
+}
+```
+
+`appointment_count` counts the service's future (`start_time` after now),
+non-cancelled appointments, and `expected_revenue` is that count multiplied by
+the service price, as a decimal string; both are computed in the database. A
+service without such appointments reports `0` and `"0.00"`.
+
+`401` without a token. `403` for a user whose current role is `Client`
+(whatever the id) and for a business owner who does not own the business (there
+is no superuser bypass). `404` for an unknown business id.
+
 ## Postman
 
 Import `postman/BookIt.postman_collection.json` into Postman. It covers
-register, login, the business list (pagination, `category`, `search`) and the
-appointment list and booking endpoints, including the 400, 401, 403 and 409
+register, login, the business list (pagination, `category`, `search`), the
+owner-only business summary, and the appointment list and booking endpoints,
+including the 400, 401, 403, 404 and 409
 cases, and uses the seeded logins (`client1@bookit.test`, `owner1@bookit.test`,
 password `BookIt-Demo-2026!`) through collection variables. Start the server
 first and run the folders in order: the login requests save the tokens, and
 "List my appointments (client)" saves a real `serviceId` for the booking
 requests, because database ids change on every `seed_data` run. Change
-`baseUrl` if the server is not on `http://127.0.0.1:8000`.
+`baseUrl` if the server is not on `http://127.0.0.1:8000`. The summary requests
+use the `businessId` and `otherBusinessId` saved by "List businesses
+(paginated)".
 
 The collection can also run headless: `npx newman run
 postman/BookIt.postman_collection.json`. Registering and booking requests
 write real rows to the development database.
-
-The business summary endpoint is not implemented yet, so it is not in the
-collection.
 
 ## Domain Model
 

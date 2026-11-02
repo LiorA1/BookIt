@@ -34,15 +34,15 @@ Already implemented:
 - Idempotent, deterministic `seed_data` command.
 - Appointment booking (`POST`) and role-scoped listing (`GET`) with a database
   exclusion constraint against overlapping bookings.
+- Owner-only `GET /api/businesses/{id}/summary/` with database aggregation.
 
 Must be corrected or completed:
 
-- The owner-only business summary endpoint and ORM aggregation are missing.
 - The two required custom middleware classes are missing.
 - Token values are currently printed and must not appear in output or logs.
 - The README lacks the required connection/transaction explanation.
 - The Postman collection (`postman/BookIt.postman_collection.json`) covers
-  auth, businesses, and appointments; the summary endpoint is still to add.
+  auth, businesses, the business summary, and appointments.
 
 ## Milestone 1: Authentication — Implemented
 
@@ -163,7 +163,7 @@ Implementation decisions:
 
 ## Milestone 4: Appointment Service and Endpoints — Implemented
 
-Implemented in `ms-4` (pending commit approval).
+Implemented in `ms-4`.
 
 1. Add `AppointmentService` with ORM/repository dependencies passed explicitly.
 2. Add `POST /api/appointments/`; only a `Client` may book a service.
@@ -249,7 +249,9 @@ Implementation decisions:
 - A service with `duration_minutes = 0` would violate the `end_time` check and
   surface as a server error; a `Service` duration constraint was not added.
 
-## Milestone 5: Owner-Only Business Summary
+## Milestone 5: Owner-Only Business Summary — Implemented
+
+Implemented in `ms-5`.
 
 1. Add `GET /api/businesses/{id}/summary/`.
 2. Return 403 to an authenticated caller who does not own the business.
@@ -265,6 +267,32 @@ Acceptance criteria:
 - Tests cover the owner, another owner, a client, anonymous access, cancelled
   appointments, past appointments, and services with zero appointments.
 - Query count does not grow with the number of services or appointments.
+
+Implementation decisions:
+
+- Response is the standard paginated envelope (`StandardPageNumberPagination`)
+  over the business's services, ordered by service `id`. Each item is
+  `{service_id, name, appointment_count, expected_revenue}`; there is no
+  top-level business object. `expected_revenue` is a decimal string
+  (`"150.00"`); a service with no matching appointments reports `0` and
+  `"0.00"`.
+- "Future" means `start_time > now` (an appointment starting exactly now, or
+  already in progress, is not counted). Pending and Confirmed count; Cancelled
+  never does. `BusinessSummaryService` takes an injectable clock.
+- Check order: unauthenticated `401`; `IsBusinessOwner` checks the current
+  database role first, so any `Client` gets `403` whatever the id; an unknown
+  business id returns `404`; a business owned by someone else raises
+  `BusinessNotOwnedError`, mapped to `403` by the view. There is no superuser
+  bypass: the seeded `admin@bookit.test` owns no business and gets `403`.
+- Counts and revenue come from one grouped `Service` query:
+  `Count("appointments", filter=...)` and `count * F("price")` in an
+  `ExpressionWrapper` with a `DecimalField` output. The query selects only
+  `id`, `name`, and `price`, and the view loads the business with
+  `.only("id", "owner")`. A request runs a fixed number of queries (business
+  lookup, pagination count, page rows) regardless of services or appointments;
+  a test asserts it.
+- The `.only()` columns must stay in sync with
+  `BusinessSummaryItemResponseSerializer`.
 
 ## Milestone 6: Required Middleware
 

@@ -102,6 +102,15 @@ class AppointmentListQuerySerializer(serializers.Serializer):
         return attrs
 
 
+class BusinessSummaryItemResponseSerializer(serializers.Serializer):
+    """One service of the owner summary; the counts are annotations from BusinessSummaryService.summarize."""
+
+    service_id = serializers.IntegerField(source="id", read_only=True)
+    name = serializers.CharField(read_only=True)
+    appointment_count = serializers.IntegerField(read_only=True)
+    expected_revenue = serializers.DecimalField(max_digits=20, decimal_places=2, read_only=True)
+
+
 class AppointmentServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
