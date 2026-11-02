@@ -9,9 +9,14 @@ class Category(models.IntegerChoices):
 
 
 class Business(models.Model):
-    name = models.CharField(_("business name"), max_length=150, blank=False)
+    name = models.CharField(_("business name"), max_length=150, blank=False, db_index=True)
     owner = models.ForeignKey(to=settings.AUTH_USER_MODEL, related_name="businesses", on_delete=models.CASCADE)
-    category = models.IntegerField(choices=Category.choices)
+    category = models.IntegerField(choices=Category.choices, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["category", "name"], name="business_category_name_idx"),
+        ]
 
     def __str__(self):
         return self.name
