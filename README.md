@@ -1,8 +1,10 @@
 # BookIt
 
 BookIt is a Django REST Framework API for service-business discovery and
-appointment booking. The current implementation provides email-based accounts,
-JWT authentication, core booking-domain models, and paginated business search.
+appointment booking. It provides email-based accounts with JWT authentication,
+paginated business search, appointment booking and role-scoped listing, an
+owner-only business summary, and request logging with correlation IDs and
+generic JSON error responses.
 
 ## Features
 
@@ -17,8 +19,8 @@ JWT authentication, core booking-domain models, and paginated business search.
 - Django admin support for users, businesses, services, and appointments.
 - Service-level and API-level tests.
 
-Services are currently available as models and through Django admin;
-appointments are also available through the booking and listing API.
+Businesses and services are created and edited through Django admin (or
+`seed_data`); the API has no create, update, or delete endpoints for them.
 
 ## Technology
 
@@ -69,6 +71,17 @@ Copy `.env.example` to `.env` and set:
 
 `.env` is ignored by Git.
 
+## Database Connections and Transactions
+
+Database connections are opened lazily on the first query and, with
+`CONN_MAX_AGE = 0`, closed at the end of each request; requests that do not
+access the database open no connection. Django uses autocommit for ordinary ORM
+statements, while write workflows that must succeed or fail together use
+explicit `transaction.atomic()` blocks in the service layer, with PostgreSQL
+constraints providing race safety. This choice favors simplicity, explicit
+transaction boundaries, short transactions, low idle-connection usage, and low
+stale-connection risk.
+
 ## Seed Data
 
 `python manage.py seed_data` creates a deterministic demo data set: 5 business
@@ -110,8 +123,8 @@ slashless `POST` is not usable: it raises an error when `DEBUG` is on and is
 redirected without its body otherwise. Always call the routes with the
 trailing slash.
 
-A ready-to-import Postman collection and environment live in `postman/`; see
-[Postman](#postman).
+A ready-to-import Postman collection with collection-scoped variables lives in
+`postman/`; see [Postman](#postman).
 
 Every `/api/` route except register and login requires a JWT access token.
 Django admin at `/admin/` is a deliberate exception: it is a staff-only
@@ -133,7 +146,9 @@ API.
 
 Valid roles are `Client` and `BusinessOwner`. A successful request returns
 `201 Created` with `id`, `email`, `full_name`, and `role`. Emails are stored
-lowercased and are unique case-insensitively.
+lowercased and are unique case-insensitively. A missing or invalid field, a
+weak password, or an already registered email returns `400 Bad Request` with
+the error under that field (for example `email`).
 
 ### Login
 
@@ -147,7 +162,8 @@ lowercased and are unique case-insensitively.
 ```
 
 A successful request returns `access` and `refresh` JWT strings; the access
-token carries `user_id` and `role` claims. Invalid credentials return
+token carries `user_id` and `role` claims. A missing or invalid `email` or
+`password` field returns `400 Bad Request`; wrong credentials return
 `401 Unauthorized` with a `WWW-Authenticate: Bearer realm="api"` header. Send
 the access token to protected routes:
 
@@ -190,11 +206,11 @@ role is `Client`; business owners receive `403 Forbidden`.
 `start_time` must include a UTC offset (`Z` or `+02:00`), be in the future, and
 be at most `BOOKING_MAX_ADVANCE_DAYS` (default 365) days ahead.
 The appointment starts as `pending`, and `end_time` is `start_time` plus the
-service duration. Responses use `201 Created`. Errors are field-oriented:
-`400` for an unknown service or an invalid, naive, past, or too-distant
-`start_time`, and
-`409 Conflict` on `start_time` when the booking would overlap an active
-appointment of the same service. Back-to-back bookings are allowed, and
+service duration. Responses use `201 Created`. Errors are field-oriented and
+return `400 Bad Request`: on `service` for an unknown service, and on
+`start_time` for an invalid, naive, past, or too-distant time, or when the
+booking would overlap an active appointment of the same service
+(`"This time slot is already booked."`). Back-to-back bookings are allowed, and
 cancelled appointments free their time.
 
 ### List Appointments
@@ -255,15 +271,17 @@ The server writes one JSON object per line to the console, for example:
 Request lines are INFO for 1xx-3xx, WARNING for 4xx, and ERROR for 5xx; the
 query string is not logged. An unexpected server error is logged in full
 (with its traceback) on the `bookit.exception` logger and answered with `500`
-and the generic body `{"detail": "Internal server error."}`. With
-`DEBUG=True`, Django's debug page is shown instead.
+and the generic body `{"detail": "Internal server error."}`. Errors raised
+outside a view, for example in other middleware, get the same JSON response
+through Django's `handler500` and are logged by Django's own `django.request`
+logger in plain text. With `DEBUG=True`, Django's debug page is shown instead.
 
 ## Postman
 
 Import `postman/BookIt.postman_collection.json` into Postman. It covers
 register, login, the business list (pagination, `category`, `search`), the
 owner-only business summary, and the appointment list and booking endpoints,
-including the 400, 401, 403, 404 and 409
+including the 400, 401, 403 and 404
 cases, and uses the seeded logins (`client1@bookit.test`, `owner1@bookit.test`,
 password `BookIt-Demo-2026!`) through collection variables. Start the server
 first and run the folders in order: the login requests save the tokens, and
@@ -291,7 +309,7 @@ write real rows to the development database.
 
 ```text
 BookIt/
-|-- BookIt/          # Project settings, root URLs, middleware, and logging
+|-- BookIt/          # Project settings, root URLs, middleware, logging, and the JSON 500 view
 |-- accounts/        # Users, registration, login, and JWT services
 |-- business/        # Businesses, services, appointments, and discovery
 |-- .env.example     # Local environment template

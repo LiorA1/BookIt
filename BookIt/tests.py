@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.core.exceptions import BadRequest, PermissionDenied, SuspiciousOperation
 from django.http import Http404, HttpRequest
 from django.http.multipartparser import MultiPartParserError
-from django.test import SimpleTestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -199,6 +199,48 @@ class ExceptionMiddlewareTests(JsonLogCaptureMixin, FailingLoginMixin, APITestCa
             response = self.client.post(reverse("login"), {}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class FailingMiddleware:
+    """Test-only middleware that fails before the view runs, like a session store outage would."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        raise RuntimeError(SECRET_DETAIL)
+
+
+@override_settings(
+    MIDDLEWARE=[
+        "BookIt.middleware.RequestLoggingMiddleware",
+        "BookIt.middleware.ExceptionMiddleware",
+        "BookIt.tests.FailingMiddleware",
+    ]
+)
+class Handler500Tests(SimpleTestCase):
+    def get_with_failing_middleware(self, path):
+        client = Client(raise_request_exception=False)
+        # Django's own django.request logger reports the exception; capture it to keep the test output clean.
+        with self.assertLogs("django.request", level=logging.ERROR):
+            return client.get(path)
+
+    def test_middleware_exception_returns_the_generic_json_500(self):
+        for path in (reverse("business-list"), "/admin/login/"):
+            with self.subTest(path=path):
+                response = self.get_with_failing_middleware(path)
+
+                self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+                self.assertEqual(response["Content-Type"], "application/json")
+                self.assertEqual(response.json(), {"detail": "Internal server error."})
+                self.assertIn(CORRELATION_ID_HEADER, response)
+
+    def test_middleware_exception_response_does_not_expose_internal_details(self):
+        response = self.get_with_failing_middleware(reverse("business-list"))
+
+        body = response.content.decode()
+        for leaked in (SECRET_DETAIL, "RuntimeError", "Traceback", "BookIt/tests.py"):
+            self.assertNotIn(leaked, body)
 
 
 class ExceptionMiddlewareHandledExceptionTests(SimpleTestCase):

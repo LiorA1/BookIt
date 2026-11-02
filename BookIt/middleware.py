@@ -4,10 +4,11 @@ import uuid
 
 from django.conf import settings
 from django.core.exceptions import BadRequest, PermissionDenied, SuspiciousOperation
-from django.http import Http404, JsonResponse
+from django.http import Http404
 from django.http.multipartparser import MultiPartParserError
 
 from .log_context import correlation_id_var
+from .views import server_error
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 
@@ -64,7 +65,8 @@ class ExceptionMiddleware:
     """Logs unexpected view exceptions with their traceback and answers with a generic JSON 500.
 
     Django wraps every middleware in its own exception handler, so only `process_exception` sees view exceptions; a
-    try/except around `get_response` would never run. Exceptions raised by other middleware are not covered here.
+    try/except around `get_response` would never run. Exceptions raised by other middleware reach Django's
+    `handler500`, which is set to the same generic response in `BookIt/urls.py`.
     """
 
     def __init__(self, get_response):
@@ -86,5 +88,4 @@ class ExceptionMiddleware:
         if settings.DEBUG:
             # Let Django render its debug page for developers; the exception is already logged above.
             return None
-        # Never include the traceback, the exception text, or any internal detail in the body.
-        return JsonResponse({"detail": "Internal server error."}, status=500)
+        return server_error(request)

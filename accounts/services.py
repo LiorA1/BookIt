@@ -43,7 +43,5 @@ class AuthService:
 
     def issue_tokens(self, user) -> dict:
         refresh = self.token_class.for_user(user)
-        print(f"refresh: {refresh}")
-        print(f"type of refresh: {type(refresh)}")
         refresh["role"] = Role(user.role).name
         return {"access": str(refresh.access_token), "refresh": str(refresh)}

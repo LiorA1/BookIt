@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "BookIt API",
-    "description": "Requests for the BookIt API (auth, businesses, appointments), using the logins created by `python manage.py seed_data`.\n\nRun the folders in order (Auth, Businesses, Appointments): the login requests save `clientToken` and `ownerToken`, and the appointment list saves a real `serviceId` for the booking requests. Database ids differ on every seed run, so none are hard-coded.\n\nRoutes need the trailing slash (a slashless POST fails). Not covered yet: business summary endpoint and refresh endpoint (not implemented).",
+    "description": "Requests and assertions for every required BookIt endpoint: registration and login, paginated business discovery, the owner-only business summary, and appointment listing and booking. The collection uses the logins created by `python manage.py seed_data`.\n\nRun the folders in order (Auth, Businesses, Appointments): login requests save `clientToken` and `ownerToken`; the business list saves `businessId` and `otherBusinessId` for summary requests; and the appointment list saves a real `serviceId` for booking requests. Database ids differ on every seed run, so none are hard-coded.\n\nRoutes require trailing slashes (a slashless POST fails). A refresh-token endpoint is not implemented and is optional bonus scope.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -647,7 +647,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "// A random half-hour slot 60-300 days ahead: after the seeded window, inside the 365-day horizon,",
-                  "// and unlikely to repeat, so the request can be re-run (an overlap returns 409).",
+                  "// and unlikely to repeat, so the request can be re-run (an overlap returns 400).",
                   "const start = new Date(Date.now() + (60 + Math.floor(Math.random() * 240)) * 24 * 60 * 60 * 1000);",
                   "start.setUTCHours(Math.floor(Math.random() * 24), Math.random() < 0.5 ? 0 : 30, 0, 0);",
                   "pm.variables.set('startTime', start.toISOString());"
@@ -767,14 +767,14 @@
           }
         },
         {
-          "name": "Book an appointment (same slot twice -> 409)",
+          "name": "Book an appointment (same slot twice -> 400)",
           "event": [
             {
               "listen": "prerequest",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Fixed far-future slot: the first run books it (201), every later run conflicts (409).",
+                  "// Fixed far-future slot: the first run books it (201), every later run conflicts (400).",
                   "pm.variables.set('conflictStart', new Date(Date.now() + 340 * 24 * 60 * 60 * 1000).toISOString().slice(0, 11) + '03:00:00Z');"
                 ]
               }
@@ -784,9 +784,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('201 on the first booking or 409 once the slot is taken', () => {",
-                  "  pm.expect([201, 409]).to.include(pm.response.code);",
-                  "  if (pm.response.code === 409) pm.expect(pm.response.json()).to.have.property('start_time');",
+                  "pm.test('201 on the first booking or 400 on start_time once the slot is taken', () => {",
+                  "  pm.expect([201, 400]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 400) pm.expect(pm.response.json().start_time).to.eql(['This time slot is already booked.']);",
                   "});"
                 ]
               }

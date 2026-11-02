@@ -15,7 +15,7 @@ from .services import AuthService, UserService
 
 
 class RegisterView(APIView):
-    """POST /api/auth/register - creates a user (email, password, full name, role)."""
+    """POST /api/auth/register/ - creates a user (email, password, full name, role)."""
 
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -38,8 +38,8 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
-    """POST /api/auth/login - validates credentials and returns access and refresh JWTs."""
-    # {"email": "my@do.com", "password": "tlv08v!!!", "full_name": "Lior A", "role": "Client"}
+    """POST /api/auth/login/ - validates credentials and returns access and refresh JWTs."""
+
     authentication_classes = []
     permission_classes = [AllowAny]
     auth_service_class = AuthService

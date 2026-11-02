@@ -37,14 +37,15 @@ Already implemented:
 - Owner-only `GET /api/businesses/{id}/summary/` with database aggregation.
 - Request logging middleware (server-generated `X-Correlation-ID`, JSON log
   lines) and global exception middleware (generic JSON 500, full server-side
-  log).
+  log), plus a JSON `handler500` for errors raised outside views.
+- Complete setup and API documentation in `README.md`, including the
+  connection and transaction explanation.
+- A Postman collection covering authentication, businesses, the business
+  summary, and appointments.
+- Deterministic primary-key ordering for Django admin service lists and
+  appointment service-autocomplete results.
 
-Must be corrected or completed:
-
-- Token values are currently printed and must not appear in output or logs.
-- The README lacks the required connection/transaction explanation.
-- The Postman collection (`postman/BookIt.postman_collection.json`) covers
-  auth, businesses, the business summary, and appointments.
+Nothing required remains open.
 
 ## Milestone 1: Authentication — Implemented
 
@@ -75,7 +76,7 @@ Verification outcome:
   fails.
 - `/admin/` is a documented staff-only session-auth exception to the JWT rule.
 - Deferred: the 403 path is tested with real role-gated endpoints in
-  Milestones 4 and 5; token print removal stays in Milestone 7; the refresh
+  Milestones 4 and 5; token print removal was done in Milestone 7; the refresh
   endpoint stays optional bonus work.
 - Re-run the authentication tests after Milestone 3 moves to Django 5.2 and
   PostgreSQL.
@@ -194,8 +195,9 @@ Implementation decisions:
   service may not overlap in time. It is enforced by the PostgreSQL exclusion
   constraint `appointment_service_no_overlap` over the half-open range
   `[start_time, end_time)`, so back-to-back bookings are allowed and a
-  cancelled appointment frees its time. A conflict returns `409` with a
-  `start_time` field error; the service maps the constraint's
+  cancelled appointment frees its time. A conflict returns `400` (changed from
+  `409` in Milestone 7) with a `start_time` field error; the service maps the
+  constraint's
   `IntegrityError` to `SlotUnavailableError`. There is no slot grid: any
   future start time is valid as long as it does not overlap.
 - The constraint needs no extension. Equality on the service is expressed as
@@ -348,9 +350,8 @@ Implementation decisions:
 - Django wraps every middleware in its own exception handler, so a `try/except`
   around `get_response` would never run; only `process_exception` sees view
   exceptions. Exceptions raised by other middleware (for example a session
-  database failure) are not covered: they get Django's default 500 page, and
-  are still logged and carry the header because logging is outermost. A JSON
-  `handler500` in the URL configuration would close that gap.
+  database failure) are not seen by it; Milestone 7 added a JSON `handler500`
+  that returns the same body for them.
 - `LOGGING` (settings) sends the `bookit` logger to a console handler with
   `JsonFormatter`: one JSON object per line with `timestamp`, `level`,
   `logger`, `message`, `correlation_id`, the request fields above, and
@@ -362,20 +363,21 @@ Implementation decisions:
 - A failing `django.request` line (plain text, DEBUG only) is Django's own and
   may appear next to the JSON lines.
 
-## Milestone 7: Deliverables and Final Verification
+## Milestone 7: Deliverables and Final Verification — Implemented
 
-1. Remove token debug output after notifying the user of that observable
-   behavior change.
-2. Finish `README.md` with:
+1. **Completed:** Removed the token debug output from
+   `AuthService.issue_tokens`; a service test asserts it writes nothing to
+   stdout.
+2. **Completed:** Finish `README.md` with:
    - Python 3.12 and Django 5 setup;
    - the exact PostgreSQL Docker command;
    - environment, migration, seed, test, and run commands;
    - seeded login credentials;
    - a 2–3 sentence explanation of per-request database connection and
      transaction scope and why it was chosen.
-3. Add a Postman collection covering every required endpoint and authentication
-   flow.
-4. Run:
+3. **Completed:** Add a Postman collection covering every required endpoint
+   and authentication flow.
+4. **Completed on 2026-11-02:** Run:
 
 ```powershell
 python manage.py check
@@ -383,9 +385,40 @@ python manage.py makemigrations --check
 python manage.py test
 ```
 
-5. Review endpoint status codes, query efficiency, secrets, and logs.
-6. Prepare logical changes for a meaningful commit history, but do not create,
-   amend, or push any commit without explicit user permission.
+   All three commands passed again in the `movement` environment after the
+   Milestone 7 changes; 138 tests passed.
+5. **Completed:** Reviewed endpoint status codes, query efficiency, secrets,
+   and documentation (log content was left out of scope by decision). The
+   review found the token debug output, an example credential in a code
+   comment in `accounts/views.py` (removed; it remains in Git history and was
+   confirmed to be test data only), and small README gaps (fixed). The
+   unordered Django admin service-autocomplete queryset was corrected with
+   primary-key ordering. Query-count tests were added for the business and
+   appointment admin changelists; Django admin already joins the
+   `list_display` relations, so no admin change was needed. Index findings
+   moved to the backlog.
+6. **Left to the user:** the changes are kept uncommitted; no commit is
+   created, amended, or pushed without explicit user permission.
+
+Implementation decisions:
+
+- A project-level `BookIt.views.server_error` returns
+  `{"detail": "Internal server error."}` with status 500. It is registered as
+  `handler500` and used by `ExceptionMiddleware`, so both paths share one
+  body. It covers exceptions raised outside views (for example in other
+  middleware) on every path, including `/admin/`. With `DEBUG=True`, Django
+  shows its debug page instead. Those errors are logged by Django's own
+  `django.request` logger in plain text; the request log line still carries
+  the correlation ID.
+- A booking that overlaps an active appointment of the same service now
+  returns `400` instead of `409`, with the same `start_time` field error, so
+  every booking validation failure uses one status. Tests, README, and the
+  Postman collection were updated.
+
+Accepted decision: request logging always generates a server-owned UUID4
+correlation ID and ignores client-supplied IDs. This intentionally favors
+trusted, injection-safe identifiers over the assignment wording "accepts or
+creates."
 
 ## Backlog (post-assignment)
 
@@ -402,6 +435,17 @@ Not scheduled; revisit when the trigger appears.
 
   Keep the README connection/transaction explanation in sync with the chosen
   option.
+- **Business name search index.** `search` runs `name ILIKE '%term%'`, which
+  cannot use the `name` B-tree or `(category, name)` indexes and scans the
+  table. Revisit when the business table grows: a `pg_trgm` GIN index on
+  `name` (needs the extension through a migration). The single-column
+  `category` index is redundant with `business_category_name_idx`, which
+  starts with `category`, and can be dropped at the same time.
+- **Appointment list indexes.** The client list (`client_id`, ordered by
+  `start_time, id`) and the owner list (joined through service and business)
+  have no index that matches filter plus ordering. Revisit when appointment
+  volume grows: for example `(client, start_time)` and
+  `(service, start_time)` indexes, verified with `EXPLAIN`.
 
 ## Optional Bonus — Only After Required Work
 

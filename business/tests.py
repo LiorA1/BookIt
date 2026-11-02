@@ -554,7 +554,7 @@ class AppointmentCreateApiTests(AppointmentFixtureMixin, APITestCase):
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertIn("start_time", response.data)
 
-    def test_booked_slot_returns_409_on_start_time(self):
+    def test_booked_slot_returns_400_on_start_time(self):
         start = self.iso(self.future())
         self.book(start_time=start)
         other_client = self.create_user("other@example.com", Role.Client)
@@ -562,11 +562,11 @@ class AppointmentCreateApiTests(AppointmentFixtureMixin, APITestCase):
 
         response = self.book(start_time=start)
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data, {"start_time": ["This time slot is already booked."]})
         self.assertEqual(Appointment.objects.count(), 1)
 
-    def test_overlapping_time_returns_409_and_adjacent_time_returns_201(self):
+    def test_overlapping_time_returns_400_and_adjacent_time_returns_201(self):
         start = self.future()
         self.book(start_time=self.iso(start))
         self.client.force_authenticate(self.create_user("other@example.com", Role.Client))
@@ -574,7 +574,7 @@ class AppointmentCreateApiTests(AppointmentFixtureMixin, APITestCase):
         overlapping = self.book(start_time=self.iso(start + timedelta(minutes=15)))
         adjacent = self.book(start_time=self.iso(start + timedelta(minutes=30)))
 
-        self.assertEqual(overlapping.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(overlapping.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(overlapping.data, {"start_time": ["This time slot is already booked."]})
         self.assertEqual(adjacent.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Appointment.objects.count(), 2)
@@ -1045,6 +1045,43 @@ class AppointmentAdminTests(AppointmentFixtureMixin, TestCase):
 
         self.assertEqual(len(response.json()["results"]), 11)
         self.assertEqual(len(eleven_results), len(one_result))
+
+    def create_appointment(self, index):
+        service = self.create_service(self.owner, name=f"Service {index}", business_name=f"Business {index}")
+        client = self.create_user(f"client{index}@example.com", Role.Client)
+        start = self.future(days=index + 1)
+        return Appointment.objects.create(
+            service=service, client=client, start_time=start, end_time=start + timedelta(minutes=30)
+        )
+
+    def test_business_changelist_query_count_does_not_grow_with_rows(self):
+        Business.objects.create(name="Business 0", owner=self.owner, category=Category.Barbers)
+        self.client.get(reverse("admin:business_business_changelist"))  # warm one-time caches (content types)
+        with CaptureQueriesContext(connection) as one_row:
+            response = self.client.get(reverse("admin:business_business_changelist"))
+        self.assertEqual(response.status_code, 200)
+
+        for index in range(1, 11):
+            owner = self.create_user(f"owner{index}@example.com", Role.BusinessOwner)
+            Business.objects.create(name=f"Business {index}", owner=owner, category=Category.Barbers)
+        with CaptureQueriesContext(connection) as eleven_rows:
+            self.client.get(reverse("admin:business_business_changelist"))
+
+        self.assertEqual(len(eleven_rows), len(one_row))
+
+    def test_appointment_changelist_query_count_does_not_grow_with_rows(self):
+        self.create_appointment(0)
+        self.client.get(reverse("admin:business_appointment_changelist"))  # warm one-time caches (content types)
+        with CaptureQueriesContext(connection) as one_row:
+            response = self.client.get(reverse("admin:business_appointment_changelist"))
+        self.assertEqual(response.status_code, 200)
+
+        for index in range(1, 11):
+            self.create_appointment(index)
+        with CaptureQueriesContext(connection) as eleven_rows:
+            self.client.get(reverse("admin:business_appointment_changelist"))
+
+        self.assertEqual(len(eleven_rows), len(one_row))
 
 
 class SeedDataCommandTests(TestCase):

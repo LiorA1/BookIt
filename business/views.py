@@ -27,7 +27,7 @@ from .services import AppointmentService, BusinessSummaryService
 
 
 class BusinessListView(ListAPIView):
-    """GET /api/businesses - paginated list of businesses (?page=, ?page_size=, ?category=, ?search=)."""
+    """GET /api/businesses/ - paginated list of businesses (?page=, ?page_size=, ?category=, ?search=)."""
 
     serializer_class = BusinessResponseSerializer
     pagination_class = StandardPageNumberPagination
@@ -97,7 +97,7 @@ class AppointmentListCreateView(GenericAPIView):
         except SlotUnavailableError:
             return Response(
                 {"start_time": ["This time slot is already booked."]},
-                status=status.HTTP_409_CONFLICT,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(

@@ -23,3 +23,6 @@ urlpatterns = [
     path("api/businesses/", include("business.urls")),
     path("api/appointments/", include("business.appointment_urls")),
 ]
+
+# Used only when DEBUG is off; covers exceptions raised outside views, such as in other middleware.
+handler500 = "BookIt.views.server_error"
