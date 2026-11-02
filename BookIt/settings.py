@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -60,6 +61,10 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Order matters: request logging is outermost so it times everything and stamps the correlation ID on every
+    # response, including the generic 500 produced by the exception middleware right inside it.
+    "BookIt.middleware.RequestLoggingMiddleware",
+    "BookIt.middleware.ExceptionMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -173,3 +178,35 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/topics/email/#topic-email-configuration
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+
+# Logging
+# https://docs.djangoproject.com/en/5.2/topics/logging/
+
+# One JSON object per line on the console for the application's own loggers (`bookit.request`, `bookit.exception`).
+# Django's own loggers keep their defaults.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "correlation_id": {"()": "BookIt.log_context.CorrelationIdFilter"},
+    },
+    "formatters": {
+        "json": {"()": "BookIt.log_context.JsonFormatter"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "filters": ["correlation_id"],
+            "formatter": "json",
+        },
+    },
+    "loggers": {
+        "bookit": {
+            "handlers": ["console"],
+            # Keeps the test run readable; tests that check logging capture records with assertLogs.
+            "level": "CRITICAL" if "test" in sys.argv else "INFO",
+            "propagate": False,
+        },
+    },
+}
