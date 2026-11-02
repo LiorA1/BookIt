@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.db.models.functions import Lower
 from django.utils.translation import gettext_lazy as _
 
 
@@ -54,6 +55,20 @@ class CustomUser(AbstractUser):
     role = models.IntegerField(choices=Role.choices)
 
     objects = CustomUserManager()
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                name="accounts_customuser_email_ci_unique",
+                violation_error_message=_("A user with this email already exists."),
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Login looks emails up lowercased, so every write path (admin forms, direct ORM) must store them that way.
+        self.email = type(self).objects.normalize_email(self.email)
+        super().save(*args, **kwargs)
 
     def get_full_name(self):
         return self.full_name

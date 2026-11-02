@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .exceptions import EmailAlreadyRegisteredError, InvalidCredentialsError
 from .serializers import (
@@ -54,6 +55,7 @@ class LoginView(APIView):
             return Response(
                 {"detail": "Invalid email or password."},
                 status=status.HTTP_401_UNAUTHORIZED,
+                headers={"WWW-Authenticate": JWTAuthentication().authenticate_header(request)},
             )
 
         return Response(TokenResponseSerializer(tokens).data, status=status.HTTP_200_OK)

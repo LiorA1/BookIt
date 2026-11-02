@@ -1,4 +1,6 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -10,6 +12,35 @@ from .models import Role
 from .services import AuthService, UserService
 
 User = get_user_model()
+
+
+class CustomUserModelTests(TestCase):
+    def test_save_normalizes_email_outside_the_manager(self):
+        user = User(email="Dana@Example.COM", full_name="Dana", role=Role.Client)
+        user.set_password("S3cure-pass!")
+        user.save()
+
+        user.refresh_from_db()
+        self.assertEqual(user.email, "dana@example.com")
+        tokens = AuthService(user_model=User).login(email="Dana@Example.COM", password="S3cure-pass!")
+        self.assertEqual(str(AccessToken(tokens["access"])["user_id"]), str(user.pk))
+
+    def test_database_rejects_case_variant_duplicate_email(self):
+        User.objects.create_user(email="dana@example.com", password="S3cure-pass!", full_name="Dana", role=Role.Client)
+        other = User.objects.create_user(
+            email="other@example.com", password="S3cure-pass!", full_name="Other", role=Role.Client
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            # update() bypasses save(), so only the database constraint can stop the duplicate.
+            User.objects.filter(pk=other.pk).update(email="DANA@example.com")
+
+    def test_model_validation_rejects_case_variant_duplicate_email(self):
+        User.objects.create_user(email="dana@example.com", password="S3cure-pass!", full_name="Dana", role=Role.Client)
+        candidate = User(email="DANA@example.com", full_name="Other", role=Role.Client)
+
+        with self.assertRaises(ValidationError):
+            candidate.validate_constraints()
 
 
 class UserServiceTests(TestCase):
@@ -152,6 +183,7 @@ class LoginApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("access", response.data)
+        self.assertEqual(response["WWW-Authenticate"], 'Bearer realm="api"')
 
     def test_login_missing_fields(self):
         response = self.client.post(self.url, {}, format="json")

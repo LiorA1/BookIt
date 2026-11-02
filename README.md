@@ -63,7 +63,14 @@ Copy `.env.example` to `.env` and set:
 
 ## API
 
-All request and response bodies use JSON. API routes use trailing slashes.
+All request and response bodies use JSON. API routes use trailing slashes
+(for example `/api/auth/register/`); requests without the trailing slash are
+not redirected and fail.
+
+Every `/api/` route except register and login requires a JWT access token.
+Django admin at `/admin/` is a deliberate exception: it is a staff-only
+operational tool that uses Django session login and is not part of the public
+API.
 
 ### Register
 
@@ -79,7 +86,8 @@ All request and response bodies use JSON. API routes use trailing slashes.
 ```
 
 Valid roles are `Client` and `BusinessOwner`. A successful request returns
-`201 Created` with `id`, `email`, `full_name`, and `role`.
+`201 Created` with `id`, `email`, `full_name`, and `role`. Emails are stored
+lowercased and are unique case-insensitively.
 
 ### Login
 
@@ -92,8 +100,10 @@ Valid roles are `Client` and `BusinessOwner`. A successful request returns
 }
 ```
 
-A successful request returns `access` and `refresh` JWT strings. Send the
-access token to protected routes:
+A successful request returns `access` and `refresh` JWT strings; the access
+token carries `user_id` and `role` claims. Invalid credentials return
+`401 Unauthorized` with a `WWW-Authenticate: Bearer realm="api"` header. Send
+the access token to protected routes:
 
 ```text
 Authorization: Bearer <access-token>

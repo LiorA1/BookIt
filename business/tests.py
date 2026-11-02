@@ -1,7 +1,11 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.backends import TokenBackend
+from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts.models import Role
 
@@ -28,6 +32,37 @@ class BusinessListApiTests(APITestCase):
         self.client.force_authenticate(None)
 
         response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def get_with_bearer(self, token):
+        self.client.force_authenticate(None)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return self.client.get(self.url)
+
+    def test_valid_access_token_is_accepted(self):
+        response = self.get_with_bearer(AccessToken.for_user(self.owner))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_malformed_token_returns_401(self):
+        response = self.get_with_bearer("not-a-jwt")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_token_with_wrong_signature_returns_401(self):
+        payload = dict(AccessToken.for_user(self.owner).payload)
+        forged = TokenBackend("HS256", signing_key="a-different-signing-key-of-sufficient-length").encode(payload)
+
+        response = self.get_with_bearer(forged)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_expired_token_returns_401(self):
+        token = AccessToken.for_user(self.owner)
+        token.set_exp(lifetime=-timedelta(seconds=1))
+
+        response = self.get_with_bearer(token)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 

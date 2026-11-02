@@ -10,10 +10,12 @@ out of scope.
 
 Target stack:
 
-- Python 3.12
-- Django 5
+- Python 3.12 (local development uses the conda environment `movement`)
+- Django 5.2 LTS
 - Django REST Framework
 - PostgreSQL 16 through the Django ORM and `psycopg`
+
+Milestone numbers match the `ms-N` commit message prefixes.
 
 ## Current State
 
@@ -42,47 +44,94 @@ Must be corrected or completed:
   connection/transaction explanation.
 - No Postman collection exists.
 
-## Phase 1: Required Runtime and Data Setup
+## Milestone 1: Authentication — Implemented
 
-1. Pin a Python 3.12-compatible Django 5 release, DRF, Simple JWT,
-   `python-dotenv`, and `psycopg`.
-2. Configure the default database from environment variables for PostgreSQL.
-3. Document and verify the required local database command:
+Implemented in `ms-1`. Remaining work is verification against the
+requirements only; no new features.
+
+1. Public `POST /api/auth/register/` and `POST /api/auth/login/`.
+2. JWTs contain at least user ID and role.
+3. Every other endpoint requires JWT authentication.
+4. Unauthenticated requests return 401 and authenticated-but-forbidden
+   requests return 403.
+
+Acceptance criteria:
+
+- Authentication requirements have focused API tests.
+- The public role representation remains `Client` or `BusinessOwner`.
+
+Verification outcome:
+
+- `CustomUser.save()` normalizes email on every write path, and a
+  `Lower(email)` unique constraint (`accounts` migration `0003`) enforces
+  case-insensitive uniqueness in the database.
+- The login 401 response carries `WWW-Authenticate: Bearer realm="api"`.
+- Tests cover malformed, wrong-signature, and expired access tokens (401).
+- Routes keep trailing slashes; the README and Postman collection use them.
+- `/admin/` is a documented staff-only session-auth exception to the JWT rule.
+- Deferred: the 403 path is tested with real role-gated endpoints in
+  Milestones 4 and 5; token print removal stays in Milestone 7; the refresh
+  endpoint stays optional bonus work.
+- Re-run the authentication tests after Milestone 3 moves to Django 5.2 and
+  PostgreSQL.
+
+## Milestone 2: Business List — Implemented
+
+Implemented in `ms-2`. Remaining work is verification against the
+requirements only; no new features.
+
+1. `GET /api/businesses/` pagination and total count.
+2. Category filter.
+3. Free-text name search.
+
+Acceptance criteria:
+
+- Business list requirements have focused API tests.
+
+## Milestone 3: Required Runtime and Data Setup
+
+1. Add `requirements.txt` with exact pins for direct dependencies: Django
+   5.2 LTS, DRF, Simple JWT, `python-dotenv`, and `psycopg[binary]`.
+2. Configure the default database for PostgreSQL from `DB_NAME`, `DB_USER`,
+   `DB_PASSWORD`, `DB_HOST`, and `DB_PORT`. Values live in `.env`
+   (`.env.example` holds the Docker values); no password default in code.
+   Remove SQLite.
+3. Use `CONN_MAX_AGE = 0` (one connection per request) with autocommit;
+   atomic workflows use explicit `transaction.atomic()` in services.
+4. Replace the Django 6.1-only `MAILERS` setting with the console
+   `EMAIL_BACKEND` and point settings documentation links at Django 5.2.
+5. Document and verify the required local database command:
 
 ```text
 docker run --name bookit-db -e POSTGRES_PASSWORD=bookit -e POSTGRES_DB=bookit -p 5432:5432 -d postgres:16
 ```
 
-4. Keep schema changes represented by Django migrations.
-5. Add an idempotent management command that seeds approximately 20 businesses,
-   50 services, 200 appointments, and several users.
-6. Put stable seeded login credentials in the README.
-7. Remove token debug output after notifying the user of that observable
-   behavior change.
+6. Keep schema changes represented by Django migrations.
+7. Add an idempotent `python manage.py seed_data` command in
+   `business/management/commands/`:
+   - 5 business owners with 4 businesses each (20 businesses), 10 clients,
+     50 services, and 200 appointments;
+   - an `admin@bookit.test` superuser with the `BusinessOwner` role;
+   - all seeded users use the `@bookit.test` email domain and share one
+     password;
+   - deterministic data from hand-written name lists and a fixed random seed;
+   - appointments on 30-minute business-hour slots within ±30 days of the
+     run date, mixing past and future times and all statuses, with no
+     duplicate service/start-time pairs;
+   - each run, inside one transaction, deletes only `@bookit.test` users
+     (cascading to their data) and recreates the full data set.
+8. Update `README.md` setup: conda environment with Python 3.12,
+   `requirements.txt`, the Docker PostgreSQL command, database environment
+   variables, the seed command, and seeded login credentials.
 
 Acceptance criteria:
 
-- A clean Python 3.12 environment can install dependencies and connect to the
-  Docker PostgreSQL database.
-- `migrate` and the seed command succeed repeatedly.
-- The seeded counts are approximately those requested and credentials work.
+- The Python 3.12 environment installs dependencies from `requirements.txt`
+  and connects to the Docker PostgreSQL database.
+- `migrate` and `seed_data` succeed repeatedly with the same resulting counts.
+- Seeded credentials work.
 
-## Phase 2: Authentication and Business List Verification
-
-1. Preserve public `POST /api/auth/register/` and `POST /api/auth/login/`.
-2. Verify JWTs contain at least user ID and role.
-3. Verify every other endpoint requires JWT authentication.
-4. Verify unauthenticated requests return 401 and authenticated-but-forbidden
-   requests return 403.
-5. Preserve `GET /api/businesses/` pagination, total count, category filter,
-   and free-text name search.
-
-Acceptance criteria:
-
-- Authentication and business requirements have focused API tests.
-- The public role representation remains `Client` or `BusinessOwner`.
-
-## Phase 3: Appointment Service and Endpoints
+## Milestone 4: Appointment Service and Endpoints
 
 1. Add `AppointmentService` with ORM/repository dependencies passed explicitly.
 2. Add `POST /api/appointments/`; only a `Client` may book a service.
@@ -103,7 +152,7 @@ Acceptance criteria:
   behavior are tested.
 - Owners cannot see appointments for another owner's businesses.
 
-## Phase 4: Owner-Only Business Summary
+## Milestone 5: Owner-Only Business Summary
 
 1. Add `GET /api/businesses/{id}/summary/`.
 2. Return 403 to an authenticated caller who does not own the business.
@@ -120,7 +169,7 @@ Acceptance criteria:
   appointments, past appointments, and services with zero appointments.
 - Query count does not grow with the number of services or appointments.
 
-## Phase 5: Required Middleware
+## Milestone 6: Required Middleware
 
 1. Add global exception middleware that:
    - catches otherwise unhandled exceptions;
@@ -138,18 +187,20 @@ Acceptance criteria:
 - Focused tests verify the generic 500 body, server-side logging, timing log
   fields, and correlation response header.
 
-## Phase 6: Deliverables and Final Verification
+## Milestone 7: Deliverables and Final Verification
 
-1. Finish `README.md` with:
+1. Remove token debug output after notifying the user of that observable
+   behavior change.
+2. Finish `README.md` with:
    - Python 3.12 and Django 5 setup;
    - the exact PostgreSQL Docker command;
    - environment, migration, seed, test, and run commands;
    - seeded login credentials;
    - a 2–3 sentence explanation of per-request database connection and
      transaction scope and why it was chosen.
-2. Add a Postman collection covering every required endpoint and authentication
+3. Add a Postman collection covering every required endpoint and authentication
    flow.
-3. Run:
+4. Run:
 
 ```powershell
 python manage.py check
@@ -157,8 +208,8 @@ python manage.py makemigrations --check
 python manage.py test
 ```
 
-4. Review endpoint status codes, query efficiency, secrets, and logs.
-5. Prepare logical changes for a meaningful commit history, but do not create,
+5. Review endpoint status codes, query efficiency, secrets, and logs.
+6. Prepare logical changes for a meaningful commit history, but do not create,
    amend, or push any commit without explicit user permission.
 
 ## Optional Bonus — Only After Required Work
