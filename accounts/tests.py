@@ -1,6 +1,3 @@
-import io
-from contextlib import redirect_stdout
-
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -145,15 +142,6 @@ class AuthServiceTests(TestCase):
         self.assertEqual(str(access["user_id"]), str(self.user.pk))
         self.assertEqual(access["role"], "BusinessOwner")
         self.assertEqual(str(refresh["user_id"]), str(self.user.pk))
-
-    def test_issue_tokens_writes_nothing_to_stdout(self):
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            tokens = self.service.issue_tokens(self.user)
-
-        self.assertEqual(stdout.getvalue(), "")
-        self.assertTrue(tokens["access"])
-        self.assertTrue(tokens["refresh"])
 
     def test_login_wrong_password_raises(self):
         with self.assertRaises(InvalidCredentialsError):

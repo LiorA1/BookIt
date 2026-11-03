@@ -46,7 +46,7 @@ class AppointmentService:
         `start_time` and `end_time` are inclusive lower and upper bounds on the appointments' start_time.
         """
         # Only the columns AppointmentResponseSerializer renders; keeps the client's password hash and email out of
-        # the query. Keep it in sync with the serializer (the list API query tests catch drift).
+        # the query. Keep it in sync with the serializer.
         queryset = self.appointment_model.objects.select_related("service__business", "client").only(
             "id",
             "status",

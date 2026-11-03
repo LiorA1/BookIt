@@ -45,7 +45,10 @@ Already implemented:
 - Deterministic primary-key ordering for Django admin service lists and
   appointment service-autocomplete results.
 
-Nothing required remains open.
+The tests added from `ms-3` onward were removed; only the authentication and
+business-list tests from Milestones 1 and 2 remain. The test-related
+acceptance criteria of Milestones 3–7 are therefore no longer covered by
+automated tests.
 
 ## Milestone 1: Authentication — Implemented
 
@@ -159,8 +162,8 @@ Implementation decisions:
   appointments are Confirmed or Cancelled; future ones are Pending, Confirmed,
   or Cancelled.
 - The command refuses to run unless `DEBUG=True` (it deletes data and creates
-  a superuser with a documented password). Only the guard is covered by an
-  automated test; the data set was verified by running the command twice.
+  a superuser with a documented password). The data set was verified by
+  running the command twice.
 - A database constraint against double booking is deferred to Milestone 4.
 - The connection/transaction README explanation stays in Milestone 7.
 
@@ -244,8 +247,7 @@ Implementation decisions:
   model's `Meta` constraints can reference it.
 - The business list and appointment list queries select only the columns their
   response serializers render (`.only()`), so owner and client password hashes
-  and emails are not fetched; tests assert that the query count stays flat. The
-  `.only()` column lists must be kept in sync with the response serializers.
+  and emails are not fetched. The `.only()` column lists must be kept in sync with the response serializers.
 - Django admin: the appointment form uses autocomplete lookups for `service`
   and `client`, and `ServiceAdmin` joins `business`, so the form no longer runs
   one query per service.
@@ -293,8 +295,7 @@ Implementation decisions:
   `ExpressionWrapper` with a `DecimalField` output. The query selects only
   `id`, `name`, and `price`, and the view loads the business with
   `.only("id", "owner")`. A request runs a fixed number of queries (business
-  lookup, pagination count, page rows) regardless of services or appointments;
-  a test asserts it.
+  lookup, pagination count, page rows) regardless of services or appointments.
 - The `.only()` columns must stay in sync with
   `BusinessSummaryItemResponseSerializer`.
 
@@ -322,8 +323,7 @@ Implementation decisions:
 
 - Code lives in `BookIt/middleware.py` (`RequestLoggingMiddleware`,
   `ExceptionMiddleware`) and `BookIt/log_context.py` (correlation-ID
-  contextvar, `CorrelationIdFilter`, `JsonFormatter`); tests are in
-  `BookIt/tests.py`. No models, migrations, or dependencies changed.
+  contextvar, `CorrelationIdFilter`, `JsonFormatter`). No models, migrations, or dependencies changed.
 - Order in `MIDDLEWARE`: `RequestLoggingMiddleware` first, then
   `ExceptionMiddleware`, then Django's defaults. Logging is outermost, so it
   times everything and sets the header on every response, including the
@@ -359,15 +359,14 @@ Implementation decisions:
   request's ID on every record, so the exception log and request log of one
   request share an ID. Django's own loggers keep their defaults.
 - The `bookit` logger level is `CRITICAL` when `manage.py test` runs, to keep
-  test output readable; tests capture records with `assertLogs`.
+  test output readable.
 - A failing `django.request` line (plain text, DEBUG only) is Django's own and
   may appear next to the JSON lines.
 
 ## Milestone 7: Deliverables and Final Verification — Implemented
 
 1. **Completed:** Removed the token debug output from
-   `AuthService.issue_tokens`; a service test asserts it writes nothing to
-   stdout.
+   `AuthService.issue_tokens`.
 2. **Completed:** Finish `README.md` with:
    - Python 3.12 and Django 5 setup;
    - the exact PostgreSQL Docker command;
@@ -393,9 +392,9 @@ python manage.py test
    comment in `accounts/views.py` (removed; it remains in Git history and was
    confirmed to be test data only), and small README gaps (fixed). The
    unordered Django admin service-autocomplete queryset was corrected with
-   primary-key ordering. Query-count tests were added for the business and
-   appointment admin changelists; Django admin already joins the
-   `list_display` relations, so no admin change was needed. Index findings
+   primary-key ordering. Django admin already joins the `list_display`
+   relations of the business and appointment changelists, so no admin change
+   was needed. Index findings
    moved to the backlog.
 6. **Left to the user:** the changes are kept uncommitted; no commit is
    created, amended, or pushed without explicit user permission.

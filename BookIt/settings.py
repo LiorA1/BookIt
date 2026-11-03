@@ -213,7 +213,7 @@ LOGGING = {
     "loggers": {
         "bookit": {
             "handlers": ["console"],
-            # Keeps the test run readable; tests that check logging capture records with assertLogs.
+            # Keeps the test run readable.
             "level": "CRITICAL" if "test" in sys.argv else "INFO",
             "propagate": False,
         },

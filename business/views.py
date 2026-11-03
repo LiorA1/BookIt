@@ -40,7 +40,7 @@ class BusinessListView(ListAPIView):
 
         # A deterministic ordering keeps pages stable and avoids DRF's UnorderedObjectListWarning.
         # Only the columns BusinessResponseSerializer renders; keeps the owner's password hash and email out of the
-        # query. Keep it in sync with the serializer (test_query_count_does_not_grow_with_businesses catches drift).
+        # query. Keep it in sync with the serializer.
         queryset = (
             Business.objects.select_related("owner")
             .only("id", "name", "category", "owner__id", "owner__full_name")

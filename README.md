@@ -211,11 +211,46 @@ BookIt/
 `-- PLAN.md          # Product and implementation roadmap
 ```
 
-## Verification
+## Running Tests
 
-With the conda environment active and PostgreSQL running (tests create and
-drop a temporary `test_<DB_NAME>` database, so `DB_USER` needs `CREATEDB`
-rights):
+The tests use Django's test runner against PostgreSQL. Each run creates a
+temporary `test_<DB_NAME>` database and drops it at the end, so the
+development data is not touched, but `DB_USER` needs `CREATEDB` rights (the
+default `postgres` user has them).
+
+### Local Setup
+
+With the environment active and the `bookit-db` container running:
+
+```powershell
+python manage.py test
+```
+
+Run a single app, test class, or test method by passing its dotted path:
+
+```powershell
+python manage.py test accounts
+python manage.py test business.tests.BusinessListApiTests
+python manage.py test business.tests.BusinessListApiTests.test_filter_by_category
+```
+
+Add `-v 2` to list each test as it runs.
+
+### Docker Setup
+
+With the stack running:
+
+```powershell
+docker compose exec api python manage.py test
+```
+
+The image contains a copy of the code from when it was built, so run
+`docker compose up --build -d` after changing code or tests.
+
+### Full Verification
+
+Before handing off a change, also confirm that the project configuration is
+valid and that no model change is missing a migration:
 
 ```powershell
 python manage.py check
