@@ -5,8 +5,8 @@ from django.utils.translation import gettext_lazy as _
 
 
 class Role(models.IntegerChoices):
-    Client = 0, 'Client'
-    BusinessOwner = 1, 'BusinessOwner'
+    Client = 0
+    BusinessOwner = 1
 
 
 class CustomUserManager(BaseUserManager):

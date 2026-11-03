@@ -38,8 +38,8 @@ Already implemented:
 - Request logging middleware (server-generated `X-Correlation-ID`, JSON log
   lines) and global exception middleware (generic JSON 500, full server-side
   log), plus a JSON `handler500` for errors raised outside views.
-- Complete setup and API documentation in `README.md`, including the
-  connection and transaction explanation.
+- Complete setup documentation in `README.md`, including the connection and
+  transaction explanation, and the endpoint reference in `API.md`.
 - A Postman collection covering authentication, businesses, the business
   summary, and appointments.
 - Deterministic primary-key ordering for Django admin service lists and
@@ -451,7 +451,23 @@ Not scheduled; revisit when the trigger appears.
 
 - Add a refresh-token endpoint if the existing token pair is retained.
 - Add pytest unit tests for one service class.
-- Add `docker-compose.yml` for the API and PostgreSQL.
+- **Done:** Add `docker-compose.yml` for the API and PostgreSQL. A
+  `python:3.12-slim` image runs `migrate` and `collectstatic`, then gunicorn
+  23.0.0 (3 sync workers, pinned in `requirements.txt`) on port 8000. The compose `db`
+  service is `postgres:16` with a health check, a `pgdata` volume, and no
+  published port. Both services read `.env.docker` (git-ignored; template
+  `.env.docker.example`), separate from the local `.env`; it also carries the
+  `POSTGRES_*` values for the database container, and compose still forces
+  `DB_HOST=db` and `DB_PORT=5432` for the API. Verified with
+  `docker compose up --build`, `seed_data`, an unauthenticated `401`, and an
+  authenticated business list. Static files are served by WhiteNoise 6.12.0
+  (middleware after `SecurityMiddleware`): the container runs `collectstatic`
+  into `STATIC_ROOT` (`staticfiles/`, git-ignored, owned by the non-root
+  `bookit` user) at start, with the real environment, so the build needs no
+  placeholder settings values; `WHITENOISE_USE_FINDERS = DEBUG` lets local runs and tests serve
+  from app directories without `collectstatic`. The default (non-manifest)
+  storage is kept so admin pages render in tests without a manifest. Verified
+  with `DEBUG` on and off.
 - Add dedicated serializer validators where they improve clarity.
 - Add login rate limiting.
 

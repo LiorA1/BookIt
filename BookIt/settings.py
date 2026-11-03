@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 import sys
+import warnings
 from datetime import timedelta
 from pathlib import Path
 
@@ -66,6 +67,7 @@ MIDDLEWARE = [
     "BookIt.middleware.RequestLoggingMiddleware",
     "BookIt.middleware.ExceptionMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -172,6 +174,13 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# WhiteNoise serves STATIC_ROOT (filled by collectstatic when the Docker container starts) under gunicorn. In DEBUG it also
+# serves straight from the app directories, so local runs and tests need no collectstatic.
+WHITENOISE_USE_FINDERS = DEBUG
+if DEBUG:
+    warnings.filterwarnings("ignore", message="No directory at", category=UserWarning)
 
 
 # Email

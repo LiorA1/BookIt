@@ -136,7 +136,7 @@ navigate. Avoid circular imports between apps.
 - Store local values in `.env`, using `.env.example` as the committed template.
 - Never commit secret keys, tokens, local databases, or virtual environments.
 - Add and pin a dependency in the project manifest when introducing a package.
-- Update `README.md` for setup or public API changes.
+- Update `README.md` for setup changes and `API.md` for public API changes.
 - Update `PLAN.md` when a milestone is completed or reprioritized.
 - Notify the user before making any externally observable behavioral change.
 - Never create, amend, or push Git commits without explicit user permission.

@@ -87,5 +87,5 @@ python manage.py test
   side effects, or externally observable runtime behavior.
 - Prefer the smallest complete change; avoid unrelated cleanup.
 - Do not rewrite existing migrations or silently change public response shapes.
-- Update `README.md`, `CONVENTIONS.md`, or `PLAN.md` when setup, architecture,
-  public APIs, or roadmap status changes.
+- Update `README.md`, `API.md`, `CONVENTIONS.md`, or `PLAN.md` when setup,
+  architecture, public APIs, or roadmap status changes.

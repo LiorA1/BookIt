@@ -15,6 +15,8 @@ class ServiceAdmin(admin.ModelAdmin):
     list_display = ("name", "business", "duration_minutes", "price")
     list_filter = ("business",)
     search_fields = ("name", "business__name")
+    # Paginated changelist and autocomplete results need a deterministic order.
+    ordering = ("id",)
 
     def get_queryset(self, request):
         # Service.__str__ reads business.name; this also serves the appointment form's autocomplete results.
